@@ -13,6 +13,7 @@ export type WidgetType =
   | "screener"
   | "crypto"
   | "macro"
+  | "krx-indices"
   | "options"
   | "portfolio"
   | "ai"
@@ -30,8 +31,12 @@ export type WidgetInstance = {
 
 export type LayoutItem = { i: string; x: number; y: number; w: number; h: number };
 
+export type KiwoomMode = "real" | "demo";
+
 type TerminalState = {
   activeSymbol: string;
+  kiwoomMode: KiwoomMode;
+  setKiwoomMode: (mode: KiwoomMode) => void;
   widgets: WidgetInstance[];
   layout: LayoutItem[];
   watchlist: string[];
@@ -73,6 +78,7 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
   screener: { w: 12, h: 9 },
   crypto: { w: 6, h: 9 },
   macro: { w: 5, h: 7 },
+  "krx-indices": { w: 5, h: 6 },
   options: { w: 12, h: 9 },
   portfolio: { w: 7, h: 8 },
   ai: { w: 5, h: 10 },
@@ -86,6 +92,8 @@ export const useTerminal = create<TerminalState>()(
   persist(
     (set) => ({
       activeSymbol: "AAPL",
+       kiwoomMode: "real",
+      setKiwoomMode: (mode) => set({ kiwoomMode: mode }),
       widgets: DEFAULT_WIDGETS,
       layout: DEFAULT_LAYOUT,
       watchlist: ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META", "SPY"],

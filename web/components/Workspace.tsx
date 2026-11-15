@@ -9,6 +9,7 @@ import { useTerminal, type WidgetInstance } from "../store/terminal";
 import QuoteWidget from "./widgets/QuoteWidget";
 import ChartWidget from "./widgets/ChartWidget";
 import WatchlistWidget from "./widgets/WatchlistWidget";
+import KrxIndicesWidget from "./widgets/KrxIndicesWidget";
 import NewsWidget from "./widgets/NewsWidget";
 import HeatmapWidget from "./widgets/HeatmapWidget";
 import ScreenerWidget from "./widgets/ScreenerWidget";
@@ -35,6 +36,7 @@ function WidgetBody({ widget }: { widget: WidgetInstance }) {
     case "screener": return <ScreenerWidget />;
     case "crypto": return <CryptoWidget />;
     case "macro": return <MacroWidget />;
+    case "krx-indices": return <KrxIndicesWidget />;
     case "options": return <OptionsWidget widget={widget} />;
     case "portfolio": return <PortfolioWidget />;
     case "ai": return <AiWidget />;
@@ -92,10 +94,22 @@ function SymbolTag({ widget, activeSymbol }: { widget: WidgetInstance; activeSym
 }
 
 const TITLES: Record<string, string> = {
-  quote: "Quote", chart: "Chart", watchlist: "Watchlist", news: "News",
-  heatmap: "Heatmap", screener: "Screener", crypto: "Crypto",
-  macro: "Macro / Indexes", options: "Option Chain", portfolio: "Portfolio", ai: "AI Assistant",
-  calendar: "Calendar", insider: "Insider Transactions", tv: "Live TV", recap: "Market Recap",
+  quote: "Quote",
+  chart: "Chart",
+  watchlist: "Watchlist",
+  news: "News",
+  heatmap: "Heatmap",
+  screener: "Screener",
+  crypto: "Crypto",
+  macro: "Macro / Indexes",
+  "krx-indices": "KRX Market Indices",
+  options: "Option Chain",
+  portfolio: "Portfolio",
+  ai: "AI Assistant",
+  calendar: "Calendar",
+  insider: "Insider Transactions",
+  tv: "Live TV",
+  recap: "Market Recap",
 };
 
 export default function Workspace() {

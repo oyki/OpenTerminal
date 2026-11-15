@@ -12,16 +12,20 @@ export default function CommandPalette() {
   const setOpen = useTerminal((s) => s.setCommandOpen);
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const addToWatchlist = useTerminal((s) => s.addToWatchlist);
+  const kiwoomMode = useTerminal((s) => s.kiwoomMode);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: results = [] } = useQuery({
-    queryKey: ["search", query],
-    queryFn: () => apiGet<SearchResult[]>(`/api/search?q=${encodeURIComponent(query)}`),
-    enabled: open && query.trim().length > 0,
-    staleTime: 300_000,
-  });
+  queryKey: ["search", query, kiwoomMode],
+  queryFn: () =>
+    apiGet<SearchResult[]>(
+      `/api/search?q=${encodeURIComponent(query)}&mode=${kiwoomMode}`
+    ),
+  enabled: open && query.trim().length > 0,
+  staleTime: 300_000,
+});
 
   useEffect(() => {
     if (open) {

@@ -14,6 +14,7 @@ const ITEMS: Array<{ type: WidgetType; label: string; key: string }> = [
   { type: "ai", label: "AI ASSIST", key: "⌥9" },
   { type: "watchlist", label: "WATCHLIST", key: "" },
   { type: "macro", label: "MACRO", key: "" },
+  { type: "krx-indices", label: "KRX INDICES", key: "" },
   { type: "calendar", label: "CALENDAR", key: "" },
   { type: "insider", label: "INSIDER", key: "" },
   { type: "tv", label: "LIVE TV", key: "" },

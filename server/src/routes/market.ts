@@ -13,6 +13,9 @@ import * as news from "../providers/news.js";
 import * as econcalendar from "../providers/econcalendar.js";
 import * as finra from "../providers/finra.js";
 import * as secedgar from "../providers/secedgar.js";
+import { kiwoomPost } from "../providers/kiwoom/client.js";
+import { searchKoreanStocks } from "../providers/kiwoom/stock-list.js";
+import { getKiwoomMode } from "../providers/kiwoom/auth.js";
 
 export const marketRouter = Router();
 
@@ -265,17 +268,98 @@ function yahooRange(rangeKey: string): { range: string; interval: string } {
 
 // ---- search ----
 
+marketRouter.get("/kiwoom-stock-list-test", async (req, res) => {
+  try {
+    const data = await kiwoomPost<{
+      list?: Array<{
+        code: string;
+        name: string;
+      }>;
+    }>(
+      "ka10099",
+      "/api/dostk/stkinfo",
+      { mrkt_tp: "0" },
+      "real"
+    );
+
+    res.json({
+      count: data.list?.length ?? 0,
+      sample: data.list?.slice(0, 5) ?? [],
+    });
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+
 marketRouter.get("/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   if (!q) return res.json([]);
+
   try {
-    const data = await cached(`search:${q.toLowerCase()}`, 300_000, () =>
-      withFallback([
-        ["tradingview", () => tradingview.search(q)],
-        ["yahoo", () => yahoo.search(q)],
-      ])
+    // REAL / DEMO 모드 확인
+    const requestedMode = req.query.mode;
+
+    if (
+      requestedMode !== undefined &&
+      requestedMode !== "real" &&
+      requestedMode !== "demo"
+    ) {
+      return res.status(400).json({
+        error: "Invalid Kiwoom mode",
+      });
+    }
+
+    const mode =
+      requestedMode === "real" || requestedMode === "demo"
+        ? requestedMode
+        : getKiwoomMode();
+
+    // 1. 한국주식: 한글 종목명 검색
+    if (/[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(q)) {
+      const results = await searchKoreanStocks(q, mode);
+      return res.json(results);
+    }
+
+    // 2. 한국주식: 6자리 종목코드 검색
+    if (/^\d{6}$/.test(q)) {
+      const result = await kiwoomPost<{
+        return_code?: number | string;
+        return_msg?: string;
+        stk_nm?: string;
+      }>(
+        "ka10001",
+        "/api/dostk/stkinfo",
+        { stk_cd: q },
+        mode
+      );
+
+      if (!result.stk_nm) {
+        return res.json([]);
+      }
+
+      return res.json([
+        {
+          symbol: q,
+          name: result.stk_nm,
+          exchange: "KRX",
+          type: "EQUITY",
+        },
+      ]);
+    }
+
+    // 3. 기존 해외주식 검색 유지
+    const data = await cached(
+      `search:${q.toLowerCase()}`,
+      300_000,
+      () =>
+        withFallback([
+          ["tradingview", () => tradingview.search(q)],
+          ["yahoo", () => yahoo.search(q)],
+        ])
     );
-    res.json(data);
+
+    return res.json(data);
   } catch (err) {
     fail(req, res, err);
   }

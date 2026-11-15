@@ -40,6 +40,8 @@ function marketStateNY(): { label: string; open: boolean } {
 export default function TopBar() {
   const setCommandOpen = useTerminal((s) => s.setCommandOpen);
   const activeSymbol = useTerminal((s) => s.activeSymbol);
+  const kiwoomMode = useTerminal((s) => s.kiwoomMode);
+  const setKiwoomMode = useTerminal((s) => s.setKiwoomMode);
   const { data: status } = useQuery({
     queryKey: ["status"],
     queryFn: () => apiGet<Status>("/api/status"),
@@ -52,6 +54,35 @@ export default function TopBar() {
   return (
     <header className="flex items-center gap-4 px-3 h-8 bg-[var(--panel-2)] border-b border-[var(--border)] text-[11px] shrink-0">
       <span className="amber font-bold tracking-widest">OPENTERMINAL</span>
+
+<div
+  className="flex items-center gap-1 shrink-0"
+  role="group"
+  aria-label="Kiwoom investment mode"
+>
+  <span className="dim mr-1">KRX</span>
+
+  <button
+    type="button"
+    className={`term-btn ${kiwoomMode === "real" ? "active" : ""}`}
+    aria-pressed={kiwoomMode === "real"}
+    onClick={() => setKiwoomMode("real")}
+    title="Kiwoom real trading environment"
+  >
+    REAL
+  </button>
+
+  <button
+    type="button"
+    className={`term-btn ${kiwoomMode === "demo" ? "active" : ""}`}
+    aria-pressed={kiwoomMode === "demo"}
+    onClick={() => setKiwoomMode("demo")}
+    title="Kiwoom simulated trading environment"
+  >
+    DEMO
+  </button>
+</div>
+
       <span className={market.open ? "up" : "down"}>● {market.label}</span>
       <Clock tz="America/New_York" label="NY" />
       <Clock tz="Europe/Rome" label="MIL" />

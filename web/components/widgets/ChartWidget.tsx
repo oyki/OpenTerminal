@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
@@ -13,97 +14,382 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { apiGet, fmt, fmtBig, type Candle } from "../../lib/api";
-import { sma, ema, vwap, rsi, macd, bollinger, type Point } from "../../lib/indicators";
-import { useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
+import {
+  sma,
+  ema,
+  vwap,
+  rsi,
+  macd,
+  bollinger,
+  type Point,
+} from "../../lib/indicators";
+import {
+  useTerminal,
+  useWidgetSymbol,
+  type WidgetInstance,
+} from "../../store/terminal";
 
-const RANGES = ["1D", "5D", "1M", "6M", "YTD", "1Y", "5Y", "MAX"] as const;
-const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
-const INDICATORS = ["SMA20", "SMA50", "SMA200", "EMA20", "VWAP", "BOLL", "RSI", "MACD"] as const;
+// --------------------------------------------------
+// 한국주식 Kiwoom REST API 응답 형식
+// --------------------------------------------------
+
+type KoreaHistoryResponse = {
+  symbol: string;
+  market: string;
+  currency: string;
+  interval: string;
+  adjusted: boolean;
+  candles: Array<{
+    time: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  }>;
+  count: number;
+  source: string;
+};
+
+// --------------------------------------------------
+// 차트 설정
+// --------------------------------------------------
+
+const RANGES = [
+  "1D",
+  "5D",
+  "1M",
+  "6M",
+  "YTD",
+  "1Y",
+  "5Y",
+  "MAX",
+] as const;
+
+const CHART_TYPES = [
+  "candles",
+  "bars",
+  "line",
+  "area",
+] as const;
+
+const INDICATORS = [
+  "SMA20",
+  "SMA50",
+  "SMA200",
+  "EMA20",
+  "VWAP",
+  "BOLL",
+  "RSI",
+  "MACD",
+] as const;
 
 type Range = (typeof RANGES)[number];
 type ChartType = (typeof CHART_TYPES)[number];
 type Indicator = (typeof INDICATORS)[number];
 
 const ts = (t: number) => t as UTCTimestamp;
-const toMap = (pts: Point[]) => new Map(pts.map((p) => [p.time, p.value]));
+
+const toMap = (pts: Point[]) =>
+  new Map(pts.map((p) => [p.time, p.value]));
 
 const INDICATOR_COLOR: Record<string, string> = {
-  SMA20: "#ffd966", SMA50: "#4fc3f7", SMA200: "#ba68c8", EMA20: "#ff8a65",
-  VWAP: "#80cbc4", RSI: "#ff9900", BOLL: "#ff9900", MACD: "#4fc3f7",
+  SMA20: "#ffd966",
+  SMA50: "#4fc3f7",
+  SMA200: "#ba68c8",
+  EMA20: "#ff8a65",
+  VWAP: "#80cbc4",
+  RSI: "#ff9900",
+  BOLL: "#ff9900",
+  MACD: "#4fc3f7",
 };
 
-export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
+// --------------------------------------------------
+// 한국주식 판별 및 데이터 변환
+// --------------------------------------------------
+
+function isKoreanSymbol(symbol: string): boolean {
+  return /^\d{6}$/.test(symbol);
+}
+
+function convertKoreaCandles(
+  data: KoreaHistoryResponse
+): Candle[] {
+  return data.candles
+    .map((c) => ({
+      time: Math.floor(
+        Date.parse(`${c.time}T00:00:00Z`) / 1000
+      ),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume,
+    }))
+    .filter(
+      (c) =>
+        Number.isFinite(c.time) &&
+        Number.isFinite(c.open) &&
+        Number.isFinite(c.high) &&
+        Number.isFinite(c.low) &&
+        Number.isFinite(c.close) &&
+        Number.isFinite(c.volume)
+    )
+    .sort((a, b) => a.time - b.time);
+}
+
+function filterKoreaCandles(
+  candles: Candle[],
+  range: Range
+): Candle[] {
+  if (candles.length === 0) return [];
+  if (range === "MAX") return candles;
+
+  const latest = candles[candles.length - 1].time;
+
+  if (range === "1D") {
+    return candles.slice(-1);
+  }
+
+  if (range === "5D") {
+    return candles.slice(-5);
+  }
+
+  if (range === "YTD") {
+    const year = new Date(latest * 1000).getUTCFullYear();
+    const cutoff = Date.UTC(year, 0, 1) / 1000;
+    return candles.filter((c) => c.time >= cutoff);
+  }
+
+  const days: Partial<Record<Range, number>> = {
+    "1M": 30,
+    "6M": 183,
+    "1Y": 365,
+    "5Y": 1826,
+  };
+
+  const cutoff = latest - (days[range] ?? 183) * 86400;
+
+  return candles.filter((c) => c.time >= cutoff);
+}
+
+// --------------------------------------------------
+// Chart Widget
+// --------------------------------------------------
+
+export default function ChartWidget({
+  widget,
+}: {
+  widget: WidgetInstance;
+}) {
+
   const symbol = useWidgetSymbol(widget);
+  const kiwoomMode = useTerminal((s) => s.kiwoomMode);
+  const isKorea = isKoreanSymbol(symbol);
+
   const [range, setRange] = useState<Range>("6M");
-  const [chartType, setChartType] = useState<ChartType>("candles");
-  const [active, setActive] = useState<Set<Indicator>>(new Set(["SMA20"]));
+  const [chartType, setChartType] =
+    useState<ChartType>("candles");
+
+  const [active, setActive] = useState<Set<Indicator>>(
+    new Set(["SMA20"])
+  );
+
   const [legend, setLegend] = useState<Candle | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
-  const { data: candles, error } = useQuery({
-    queryKey: ["history", symbol, range],
-    queryFn: () => apiGet<Candle[]>(`/api/history/${encodeURIComponent(symbol)}?range=${range}`),
-    refetchInterval: range === "1D" ? 8_000 : 60_000,
+  // ------------------------------------------------
+  // 미국주식 / 한국주식 데이터 분기
+  // ------------------------------------------------
+
+  const {
+  data: candles,
+  error,
+  isPending,
+  isFetching,
+  } = useQuery({
+    queryKey: [
+      "history",
+      symbol,
+      range,
+      isKorea ? kiwoomMode : "us",
+    ],
+
+    queryFn: async (): Promise<Candle[]> => {
+      if (!isKorea) {
+        return apiGet<Candle[]>(
+          `/api/history/${encodeURIComponent(symbol)}?range=${range}`
+        );
+      }
+
+      const result = await apiGet<KoreaHistoryResponse>(
+        `/api/korea/history/${encodeURIComponent(symbol)}?mode=${kiwoomMode}`
+      );
+
+      const converted = convertKoreaCandles(result);
+
+      return filterKoreaCandles(converted, range);
+    },
+
+    refetchInterval: isKorea
+  ? 60_000
+  : range === "1D"
+    ? 8_000
+    : 60_000,
+
+    retry: isKorea ? false : 3,
   });
 
-  // Fast time -> candle lookup for the crosshair legend, independent of chart type.
+  // ------------------------------------------------
+  // Crosshair 조회용 데이터
+  // ------------------------------------------------
+
   const byTime = useMemo(() => {
     const m = new Map<number, Candle>();
-    for (const c of candles ?? []) m.set(c.time, c);
+
+    for (const c of candles ?? []) {
+      m.set(c.time, c);
+    }
+
     return m;
   }, [candles]);
 
-  // Computed once per candles/active change, shared by both the chart overlays
-  // below and the hover legend — avoids recomputing the same series twice.
+  // ------------------------------------------------
+  // 기술적 지표 계산
+  // ------------------------------------------------
+
   const indicatorData = useMemo(() => {
     if (!candles || candles.length === 0) return null;
+
     return {
-      SMA20: active.has("SMA20") ? sma(candles, 20) : null,
-      SMA50: active.has("SMA50") ? sma(candles, 50) : null,
-      SMA200: active.has("SMA200") ? sma(candles, 200) : null,
-      EMA20: active.has("EMA20") ? ema(candles, 20) : null,
-      VWAP: active.has("VWAP") ? vwap(candles) : null,
-      RSI: active.has("RSI") ? rsi(candles) : null,
-      BOLL: active.has("BOLL") ? bollinger(candles) : null,
-      MACD: active.has("MACD") ? macd(candles) : null,
+      SMA20: active.has("SMA20")
+        ? sma(candles, 20)
+        : null,
+
+      SMA50: active.has("SMA50")
+        ? sma(candles, 50)
+        : null,
+
+      SMA200: active.has("SMA200")
+        ? sma(candles, 200)
+        : null,
+
+      EMA20: active.has("EMA20")
+        ? ema(candles, 20)
+        : null,
+
+      VWAP: active.has("VWAP")
+        ? vwap(candles)
+        : null,
+
+      RSI: active.has("RSI")
+        ? rsi(candles)
+        : null,
+
+      BOLL: active.has("BOLL")
+        ? bollinger(candles)
+        : null,
+
+      MACD: active.has("MACD")
+        ? macd(candles)
+        : null,
     };
   }, [candles, active]);
 
   const indicatorMaps = useMemo(() => {
     const maps: Record<string, Map<number, number>> = {};
+
     if (!indicatorData) return maps;
-    if (indicatorData.SMA20) maps.SMA20 = toMap(indicatorData.SMA20);
-    if (indicatorData.SMA50) maps.SMA50 = toMap(indicatorData.SMA50);
-    if (indicatorData.SMA200) maps.SMA200 = toMap(indicatorData.SMA200);
-    if (indicatorData.EMA20) maps.EMA20 = toMap(indicatorData.EMA20);
-    if (indicatorData.VWAP) maps.VWAP = toMap(indicatorData.VWAP);
-    if (indicatorData.RSI) maps.RSI = toMap(indicatorData.RSI);
+
+    if (indicatorData.SMA20) {
+      maps.SMA20 = toMap(indicatorData.SMA20);
+    }
+
+    if (indicatorData.SMA50) {
+      maps.SMA50 = toMap(indicatorData.SMA50);
+    }
+
+    if (indicatorData.SMA200) {
+      maps.SMA200 = toMap(indicatorData.SMA200);
+    }
+
+    if (indicatorData.EMA20) {
+      maps.EMA20 = toMap(indicatorData.EMA20);
+    }
+
+    if (indicatorData.VWAP) {
+      maps.VWAP = toMap(indicatorData.VWAP);
+    }
+
+    if (indicatorData.RSI) {
+      maps.RSI = toMap(indicatorData.RSI);
+    }
+
     if (indicatorData.BOLL) {
       maps.BOLL_U = toMap(indicatorData.BOLL.upper);
       maps.BOLL_M = toMap(indicatorData.BOLL.middle);
       maps.BOLL_L = toMap(indicatorData.BOLL.lower);
     }
+
     if (indicatorData.MACD) {
       maps.MACD_M = toMap(indicatorData.MACD.macd);
       maps.MACD_S = toMap(indicatorData.MACD.signal);
       maps.MACD_H = toMap(indicatorData.MACD.histogram);
     }
+
     return maps;
   }, [indicatorData]);
 
+  // ------------------------------------------------
+  // 범례의 기술적 지표
+  // ------------------------------------------------
+
   const indicatorRows = useMemo(() => {
     if (!legend) return [];
+
     const t = legend.time;
-    const get = (key: string) => indicatorMaps[key]?.get(t);
-    const rows: Array<{ label: string; value: string; color: string }> = [];
-    for (const key of ["SMA20", "SMA50", "SMA200", "EMA20", "VWAP"] as const) {
+
+    const get = (key: string) =>
+      indicatorMaps[key]?.get(t);
+
+    const rows: Array<{
+      label: string;
+      value: string;
+      color: string;
+    }> = [];
+
+    for (const key of [
+      "SMA20",
+      "SMA50",
+      "SMA200",
+      "EMA20",
+      "VWAP",
+    ] as const) {
       const v = get(key);
-      if (v !== undefined) rows.push({ label: key, value: fmt(v), color: INDICATOR_COLOR[key] });
+
+      if (v !== undefined) {
+        rows.push({
+          label: key,
+          value: fmt(v),
+          color: INDICATOR_COLOR[key],
+        });
+      }
     }
+
     const rsiV = get("RSI");
-    if (rsiV !== undefined) rows.push({ label: "RSI", value: fmt(rsiV, 1), color: INDICATOR_COLOR.RSI });
+
+    if (rsiV !== undefined) {
+      rows.push({
+        label: "RSI",
+        value: fmt(rsiV, 1),
+        color: INDICATOR_COLOR.RSI,
+      });
+    }
+
     const bollM = get("BOLL_M");
+
     if (bollM !== undefined) {
       rows.push({
         label: "BOLL",
@@ -111,7 +397,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         color: INDICATOR_COLOR.BOLL,
       });
     }
+
     const macdM = get("MACD_M");
+
     if (macdM !== undefined) {
       rows.push({
         label: "MACD",
@@ -119,163 +407,511 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         color: INDICATOR_COLOR.MACD,
       });
     }
+
     return rows;
   }, [legend, indicatorMaps]);
 
+  // ------------------------------------------------
+  // 최신 캔들 범례
+  // ------------------------------------------------
+
   useEffect(() => {
-    setLegend(candles && candles.length > 0 ? candles[candles.length - 1] : null);
+    setLegend(
+      candles && candles.length > 0
+        ? candles[candles.length - 1]
+        : null
+    );
   }, [candles]);
+
+  // ------------------------------------------------
+  // Lightweight Charts 렌더링
+  // ------------------------------------------------
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || !candles || candles.length === 0) return;
+
+    if (!el || !candles || candles.length === 0) {
+      return;
+    }
+
+    const isKorea = /^\d{6}$/.test(symbol);
 
     const chart = createChart(el, {
-      layout: { background: { color: "#0a0a0a" }, textColor: "#808080", fontSize: 10, attributionLogo: false },
-      grid: { vertLines: { color: "#1a1a1a" }, horzLines: { color: "#1a1a1a" } },
+      layout: {
+        background: { color: "#0a0a0a" },
+        textColor: "#808080",
+        fontSize: 10,
+        attributionLogo: false,
+      },
+
+      grid: {
+        vertLines: { color: "#1a1a1a" },
+        horzLines: { color: "#1a1a1a" },
+      },
+
       crosshair: { mode: 0 },
-      timeScale: { borderColor: "#262626", timeVisible: range === "1D" || range === "5D" },
-      rightPriceScale: { borderColor: "#262626" },
+
+      timeScale: {
+        borderColor: "#262626",
+        timeVisible:
+          !isKorea && (range === "1D" || range === "5D"),
+      },
+
+      rightPriceScale: {
+        borderColor: "#262626",
+      },
+
       autoSize: true,
-      // Mouse-wheel is left free for page scrolling — zoom via drag, pinch, or the range buttons instead.
-      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: true },
+
+      handleScroll: {
+        mouseWheel: false,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+
+      handleScale: {
+        mouseWheel: false,
+        pinch: true,
+        axisPressedMouseMove: true,
+      },
     });
+
     chartRef.current = chart;
 
-    const upColor = "#00c853";
-    const downColor = "#ff3d3d";
+   const upColor = isKorea ? "#ff3b30" : "#00c853";
+   const downColor = isKorea ? "#3478f6" : "#ff3d3d";
+
+    // ----------------------------------------------
+    // 가격 차트
+    // ----------------------------------------------
 
     if (chartType === "candles") {
       chart
         .addSeries(CandlestickSeries, {
-          upColor, downColor, borderUpColor: upColor, borderDownColor: downColor,
-          wickUpColor: upColor, wickDownColor: downColor,
+          upColor,
+          downColor,
+          borderUpColor: upColor,
+          borderDownColor: downColor,
+          wickUpColor: upColor,
+          wickDownColor: downColor,
         })
-        .setData(candles.map((c) => ({ time: ts(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
+        .setData(
+          candles.map((c) => ({
+            time: ts(c.time),
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+          }))
+        );
     } else if (chartType === "bars") {
       chart
-        .addSeries(BarSeries, { upColor, downColor })
-        .setData(candles.map((c) => ({ time: ts(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
+        .addSeries(BarSeries, {
+          upColor,
+          downColor,
+        })
+        .setData(
+          candles.map((c) => ({
+            time: ts(c.time),
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+          }))
+        );
     } else if (chartType === "line") {
       chart
-        .addSeries(LineSeries, { color: "#ff9900", lineWidth: 1 })
-        .setData(candles.map((c) => ({ time: ts(c.time), value: c.close })));
+        .addSeries(LineSeries, {
+          color: "#ff9900",
+          lineWidth: 1,
+        })
+        .setData(
+          candles.map((c) => ({
+            time: ts(c.time),
+            value: c.close,
+          }))
+        );
     } else {
       chart
-        .addSeries(AreaSeries, { lineColor: "#ff9900", topColor: "rgba(255,153,0,0.25)", bottomColor: "rgba(255,153,0,0)" })
-        .setData(candles.map((c) => ({ time: ts(c.time), value: c.close })));
+        .addSeries(AreaSeries, {
+          lineColor: "#ff9900",
+          topColor: "rgba(255,153,0,0.25)",
+          bottomColor: "rgba(255,153,0,0)",
+        })
+        .setData(
+          candles.map((c) => ({
+            time: ts(c.time),
+            value: c.close,
+          }))
+        );
     }
 
-    // volume histogram on its own scale at the bottom of the main pane
-    const vol = chart.addSeries(HistogramSeries, { priceScaleId: "vol", priceFormat: { type: "volume" } });
-    vol.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-    vol.setData(
-      candles.map((c) => ({ time: ts(c.time), value: c.volume, color: c.close >= c.open ? "rgba(0,200,83,0.4)" : "rgba(255,61,61,0.4)" }))
-    );
+    // ----------------------------------------------
+    // 거래량
+    // ----------------------------------------------
+
+    const vol = chart.addSeries(HistogramSeries, {
+      priceScaleId: "vol",
+      priceFormat: { type: "volume" },
+    });
+
+    vol.priceScale().applyOptions({
+      scaleMargins: {
+        top: 0.85,
+        bottom: 0,
+      },
+    });
+
+
+vol.setData(
+  candles.map((c) => ({
+    time: ts(c.time),
+    value: c.volume,
+    color:
+      c.close >= c.open
+        ? isKorea
+          ? "rgba(255,59,48,0.4)"
+          : "rgba(0,200,83,0.4)"
+        : isKorea
+          ? "rgba(52,120,246,0.4)"
+          : "rgba(255,61,61,0.4)",
+  }))
+);
+
+    // ----------------------------------------------
+    // 보조지표 오버레이
+    // ----------------------------------------------
 
     const overlay = (points: Point[], color: string) =>
-      chart.addSeries(LineSeries, { color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false })
-        .setData(points.map((p) => ({ time: ts(p.time), value: p.value })));
+      chart
+        .addSeries(LineSeries, {
+          color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        })
+        .setData(
+          points.map((p) => ({
+            time: ts(p.time),
+            value: p.value,
+          }))
+        );
 
-    if (indicatorData?.SMA20) overlay(indicatorData.SMA20, INDICATOR_COLOR.SMA20);
-    if (indicatorData?.SMA50) overlay(indicatorData.SMA50, INDICATOR_COLOR.SMA50);
-    if (indicatorData?.SMA200) overlay(indicatorData.SMA200, INDICATOR_COLOR.SMA200);
-    if (indicatorData?.EMA20) overlay(indicatorData.EMA20, INDICATOR_COLOR.EMA20);
-    if (indicatorData?.VWAP) overlay(indicatorData.VWAP, INDICATOR_COLOR.VWAP);
-    if (indicatorData?.BOLL) {
-      overlay(indicatorData.BOLL.upper, "rgba(255,153,0,0.5)");
-      overlay(indicatorData.BOLL.middle, "rgba(255,153,0,0.8)");
-      overlay(indicatorData.BOLL.lower, "rgba(255,153,0,0.5)");
+    if (indicatorData?.SMA20) {
+      overlay(
+        indicatorData.SMA20,
+        INDICATOR_COLOR.SMA20
+      );
     }
+
+    if (indicatorData?.SMA50) {
+      overlay(
+        indicatorData.SMA50,
+        INDICATOR_COLOR.SMA50
+      );
+    }
+
+    if (indicatorData?.SMA200) {
+      overlay(
+        indicatorData.SMA200,
+        INDICATOR_COLOR.SMA200
+      );
+    }
+
+    if (indicatorData?.EMA20) {
+      overlay(
+        indicatorData.EMA20,
+        INDICATOR_COLOR.EMA20
+      );
+    }
+
+    if (indicatorData?.VWAP) {
+      overlay(
+        indicatorData.VWAP,
+        INDICATOR_COLOR.VWAP
+      );
+    }
+
+    if (indicatorData?.BOLL) {
+      overlay(
+        indicatorData.BOLL.upper,
+        "rgba(255,153,0,0.5)"
+      );
+
+      overlay(
+        indicatorData.BOLL.middle,
+        "rgba(255,153,0,0.8)"
+      );
+
+      overlay(
+        indicatorData.BOLL.lower,
+        "rgba(255,153,0,0.5)"
+      );
+    }
+
+    // ----------------------------------------------
+    // RSI / MACD 패널
+    // ----------------------------------------------
 
     let paneIdx = 1;
+
     if (indicatorData?.RSI) {
-      const s = chart.addSeries(LineSeries, { color: INDICATOR_COLOR.RSI, lineWidth: 1 }, paneIdx++);
-      s.setData(indicatorData.RSI.map((p) => ({ time: ts(p.time), value: p.value })));
+      const s = chart.addSeries(
+        LineSeries,
+        {
+          color: INDICATOR_COLOR.RSI,
+          lineWidth: 1,
+        },
+        paneIdx++
+      );
+
+      s.setData(
+        indicatorData.RSI.map((p) => ({
+          time: ts(p.time),
+          value: p.value,
+        }))
+      );
     }
+
     if (indicatorData?.MACD) {
       const m = indicatorData.MACD;
       const pane = paneIdx++;
-      chart.addSeries(HistogramSeries, { color: "#4fc3f7" }, pane).setData(
-        m.histogram.map((p) => ({ time: ts(p.time), value: p.value, color: p.value >= 0 ? "rgba(0,200,83,0.6)" : "rgba(255,61,61,0.6)" }))
-      );
-      chart.addSeries(LineSeries, { color: "#ff9900", lineWidth: 1 }, pane).setData(
-        m.macd.map((p) => ({ time: ts(p.time), value: p.value }))
-      );
-      chart.addSeries(LineSeries, { color: "#ffffff", lineWidth: 1 }, pane).setData(
-        m.signal.map((p) => ({ time: ts(p.time), value: p.value }))
-      );
+
+      chart
+        .addSeries(
+          HistogramSeries,
+          { color: "#4fc3f7" },
+          pane
+        )
+        .setData(
+          m.histogram.map((p) => ({
+            time: ts(p.time),
+            value: p.value,
+            color:
+              p.value >= 0
+                ? "rgba(0,200,83,0.6)"
+                : "rgba(255,61,61,0.6)",
+          }))
+        );
+
+      chart
+        .addSeries(
+          LineSeries,
+          { color: "#ff9900", lineWidth: 1 },
+          pane
+        )
+        .setData(
+          m.macd.map((p) => ({
+            time: ts(p.time),
+            value: p.value,
+          }))
+        );
+
+      chart
+        .addSeries(
+          LineSeries,
+          { color: "#ffffff", lineWidth: 1 },
+          pane
+        )
+        .setData(
+          m.signal.map((p) => ({
+            time: ts(p.time),
+            value: p.value,
+          }))
+        );
     }
+
+    // ----------------------------------------------
+    // 마우스 위치에 따른 범례
+    // ----------------------------------------------
 
     chart.subscribeCrosshairMove((param) => {
       if (!param.time) {
         setLegend(candles[candles.length - 1]);
         return;
       }
+
       const hit = byTime.get(param.time as number);
-      if (hit) setLegend(hit);
+
+      if (hit) {
+        setLegend(hit);
+      }
     });
 
-    chart.timeScale().fitContent();
+// Prevent excessive zoom when only one daily candle exists.
+if (candles.length === 1) {
+  chart.timeScale().setVisibleLogicalRange({
+    from: -12,
+    to: 12,
+  });
+} else {
+  chart.timeScale().fitContent();
+}
     return () => {
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, chartType, indicatorData, range, byTime]);
+  }, [
+    candles,
+    chartType,
+    indicatorData,
+    range,
+    byTime,
+    isKorea,
+  ]);
+
+  // ------------------------------------------------
+  // 보조지표 선택
+  // ------------------------------------------------
 
   const toggleIndicator = (ind: Indicator) =>
     setActive((prev) => {
       const next = new Set(prev);
-      if (next.has(ind)) next.delete(ind);
-      else next.add(ind);
+
+      if (next.has(ind)) {
+        next.delete(ind);
+      } else {
+        next.add(ind);
+      }
+
       return next;
     });
+
+  // ------------------------------------------------
+  // UI
+  // ------------------------------------------------
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex gap-1 p-1 flex-wrap shrink-0">
         {RANGES.map((r) => (
-          <button key={r} className={`term-btn ${range === r ? "active" : ""}`} onClick={() => setRange(r)}>
+          <button
+            key={r}
+            className={`term-btn ${range === r ? "active" : ""}`}
+            onClick={() => setRange(r)}
+          >
             {r}
           </button>
         ))}
+
         <span className="w-2" />
+
         {CHART_TYPES.map((t) => (
-          <button key={t} className={`term-btn ${chartType === t ? "active" : ""}`} onClick={() => setChartType(t)}>
+          <button
+            key={t}
+            className={`term-btn ${chartType === t ? "active" : ""}`}
+            onClick={() => setChartType(t)}
+          >
             {t.toUpperCase()}
           </button>
         ))}
+
         <span className="w-2" />
+
         {INDICATORS.map((ind) => (
-          <button key={ind} className={`term-btn ${active.has(ind) ? "active" : ""}`} onClick={() => toggleIndicator(ind)}>
+          <button
+            key={ind}
+            className={`term-btn ${active.has(ind) ? "active" : ""}`}
+            onClick={() => toggleIndicator(ind)}
+          >
             {ind}
           </button>
         ))}
       </div>
-      {error && <div className="p-2 down">Error: {(error as Error).message}</div>}
+
+      {error && (
+  <div className="p-2 down text-xs" role="alert">
+    {isKorea
+      ? `KRX ${kiwoomMode.toUpperCase()} — 조회 실패: `
+      : "US — 조회 실패: "}
+    {(error as Error).message}
+  </div>
+)}
+
+{isPending && !error && (
+  <div className="p-2 dim text-xs" role="status">
+    {symbol} — {isKorea ? `KRX ${kiwoomMode.toUpperCase()}` : "US"} 차트 로딩 중…
+  </div>
+)}
+
+      {isKorea && (
+        <div className="px-2 py-1 text-[10px] text-[var(--text-muted,#808080)]">
+          KRX · {kiwoomMode.toUpperCase()} · KRW · Kiwoom daily candles
+          {" · "}
+          1D/5D use daily data
+          {" · "}
+          History limited to available records
+        </div>
+      )}
+
       <div className="relative flex-1 min-h-0">
-        {legend && (
+        {!isPending && !error && legend && (
           <div className="absolute top-1 left-2 z-10 flex flex-col gap-0.5 text-[11px] pointer-events-none bg-[rgba(10,10,10,0.7)] px-2 py-1 rounded max-w-[95%]">
             <div className="flex gap-3">
-              <span className="dim">O <span className="text-[var(--text)]">{fmt(legend.open)}</span></span>
-              <span className="dim">H <span className="up">{fmt(legend.high)}</span></span>
-              <span className="dim">L <span className="down">{fmt(legend.low)}</span></span>
-              <span className="dim">C <span className={legend.close >= legend.open ? "up" : "down"}>{fmt(legend.close)}</span></span>
-              <span className="dim">Vol <span className="text-[var(--text)]">{fmtBig(legend.volume)}</span></span>
+              <span className="dim">
+                O{" "}
+                <span className="text-[var(--text)]">
+                  {fmt(legend.open)}
+                </span>
+              </span>
+
+              <span className="dim">
+                H{" "}
+                <span className="up">
+                  {fmt(legend.high)}
+                </span>
+              </span>
+
+              <span className="dim">
+                L{" "}
+                <span className="down">
+                  {fmt(legend.low)}
+                </span>
+              </span>
+
+              <span className="dim">
+                C{" "}
+                <span
+                  className={
+                    legend.close >= legend.open
+                      ? "up"
+                      : "down"
+                  }
+                >
+                  {fmt(legend.close)}
+                </span>
+              </span>
+
+              <span className="dim">
+                Vol{" "}
+                <span className="text-[var(--text)]">
+                  {fmtBig(legend.volume)}
+                </span>
+              </span>
             </div>
+
             {indicatorRows.length > 0 && (
               <div className="flex gap-3 flex-wrap">
                 {indicatorRows.map((r) => (
                   <span key={r.label} className="dim">
-                    {r.label} <span style={{ color: r.color }}>{r.value}</span>
+                    {r.label}{" "}
+                    <span style={{ color: r.color }}>
+                      {r.value}
+                    </span>
                   </span>
                 ))}
               </div>
             )}
           </div>
         )}
-        <div ref={containerRef} className="w-full h-full" />
+
+        <div
+          ref={containerRef}
+          className={`w-full h-full ${
+            isPending || error ? "invisible" : ""
+          }`}
+        />
       </div>
     </div>
   );
