@@ -1,20 +1,23 @@
 
-import { kiwoomPost } from "./client.js";
+import { kiwoomPostPage, type KiwoomContinuation } from "./client.js";
 import type { KiwoomMode } from "./auth.js";
 
 export type KoreanStock = {
   symbol: string;
   name: string;
   exchange: string;
-  type: string;
+  type: "COMMON" | "PREFERRED" | "ETF";
 };
 
 type KiwoomStock = {
   code: string;
   name: string;
+  marketName?: string;
 };
 
 const CACHE_TTL = 24 * 60 * 60 * 1000;
+const MAX_PAGES = 10;
+const PAGE_DELAY_MS = 200;
 
 const cache = new Map<
   KiwoomMode,
@@ -30,41 +33,84 @@ async function fetchStockList(
   mode: KiwoomMode
 ): Promise<KoreanStock[]> {
   const markets = [
-    { code: "0", exchange: "KRX" },
-    { code: "10", exchange: "KOSDAQ" },
-  ];
+    { code: "0", exchange: "KOSPI", type: "COMMON" },
+    { code: "10", exchange: "KOSDAQ", type: "COMMON" },
+    { code: "8", exchange: "KRX", type: "ETF" },
+  ] as const;
 
-  const results = await Promise.all(
-    markets.map(async (market) => {
-      const response = await kiwoomPost<{
+  const results: KoreanStock[][] = [];
+  for (const market of markets) {
+    const marketStocks: KoreanStock[] = [];
+    let continuation: KiwoomContinuation | undefined;
+
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      if (page > 0) {
+        await new Promise((resolve) => setTimeout(resolve, PAGE_DELAY_MS));
+      }
+
+      const response = await kiwoomPostPage<{
         list?: KiwoomStock[];
       }>(
         "ka10099",
         "/api/dostk/stkinfo",
         { mrkt_tp: market.code },
-        mode
+        mode,
+        continuation
       );
 
-      if (!Array.isArray(response.list)) {
-        throw new Error(
-          `Invalid Kiwoom stock list: ${market.code}`
-        );
+      if (!Array.isArray(response.data.list)) {
+        throw new Error(`Invalid Kiwoom stock list: ${market.code}`);
       }
 
-      return response.list
+      const pageStocks = response.data.list
         .filter(
           (stock) =>
             /^\d{6}$/.test(stock.code) &&
             typeof stock.name === "string"
         )
-        .map((stock) => ({
-          symbol: stock.code,
-          name: stock.name,
-          exchange: market.exchange,
-          type: "EQUITY",
-        }));
-    })
-  );
+        .map((stock): KoreanStock => {
+          const listedMarket = stock.marketName ?? "";
+          const exchange = market.type !== "ETF"
+            ? market.exchange
+            : /KOSDAQ/i.test(listedMarket)
+              ? "KOSDAQ"
+              : /KOSPI/i.test(listedMarket)
+                ? "KOSPI"
+                : market.exchange;
+          const preferred =
+            market.type !== "ETF" && /우(?:[BC])?$/i.test(stock.name.trim());
+          const type = market.type === "ETF"
+            ? "ETF"
+            : preferred
+              ? "PREFERRED"
+              : "COMMON";
+
+          return {
+            symbol: stock.code,
+            name: stock.name,
+            exchange,
+            type,
+          };
+        });
+      marketStocks.push(...pageStocks);
+
+      if (
+        response.continuation.contYn?.toUpperCase() !== "Y" ||
+        !response.continuation.nextKey
+      ) {
+        break;
+      }
+
+      if (page === MAX_PAGES - 1) {
+        throw new Error(
+          `Kiwoom stock list exceeded ${MAX_PAGES} pages: ${market.code}`
+        );
+      }
+      continuation = { ...response.continuation, contYn: "Y" };
+    }
+
+    results.push(marketStocks);
+  }
 
   return Array.from(
     new Map(
@@ -112,18 +158,23 @@ export async function searchKoreanStocks(
 ): Promise<KoreanStock[]> {
   const stocks = await getKoreanStockList(mode);
   const q = query.trim().toLocaleLowerCase();
+  if (!q) return [];
 
   return stocks
     .filter((stock) =>
+      stock.symbol.includes(q) ||
       stock.name.toLocaleLowerCase().includes(q)
     )
     .sort((a, b) => {
-      const aExact =
-        a.name.toLocaleLowerCase() === q ? 0 : 1;
-      const bExact =
-        b.name.toLocaleLowerCase() === q ? 0 : 1;
-
-      return aExact - bExact;
+      const score = (stock: KoreanStock) => {
+        const name = stock.name.toLocaleLowerCase();
+        return stock.symbol === q || name === q
+          ? 0
+          : stock.symbol.startsWith(q) || name.startsWith(q)
+            ? 1
+            : 2;
+      };
+      return score(a) - score(b) || a.symbol.localeCompare(b.symbol);
     })
     .slice(0, 30);
 }

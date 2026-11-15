@@ -19,8 +19,30 @@ import {
   getKrxIndex,
   type KrxIndexCode,
 } from "../providers/kiwoom/indices.js";
+import { getKoreanStockList, searchKoreanStocks } from "../providers/kiwoom/stock-list.js";
 
 export const koreaRouter = Router();
+
+koreaRouter.get("/stocks", async (req, res) => {
+  const mode = resolveMode(req.query.mode);
+  if (mode === null) {
+    res.status(400).json({ error: "mode must be real or demo" });
+    return;
+  }
+  const market = req.query.market;
+  if (market !== undefined && market !== "KOSPI" && market !== "KOSDAQ") {
+    res.status(400).json({ error: "market must be KOSPI or KOSDAQ" });
+    return;
+  }
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const stocks = q ? await searchKoreanStocks(q, mode) : await getKoreanStockList(mode);
+    res.json(market ? stocks.filter((stock) => stock.exchange === market) : stocks);
+  } catch (error) {
+    console.error(`Kiwoom ${mode} stock list request failed:`, error instanceof Error ? error.message : "Unknown error");
+    res.status(502).json({ error: `Kiwoom ${mode} stock list request failed; check server logs` });
+  }
+});
 
 type KiwoomStockInfo = {
   stk_cd?: string;

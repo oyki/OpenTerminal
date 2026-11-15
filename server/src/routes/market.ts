@@ -315,37 +315,11 @@ marketRouter.get("/search", async (req, res) => {
         ? requestedMode
         : getKiwoomMode();
 
-    // 1. 한국주식: 한글 종목명 검색
-    if (/[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(q)) {
+    // Korean results come from the cached symbol master; search never fans out
+    // to quote requests for each candidate.
+    if (/[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(q) || /^\d{3,6}$/.test(q)) {
       const results = await searchKoreanStocks(q, mode);
       return res.json(results);
-    }
-
-    // 2. 한국주식: 6자리 종목코드 검색
-    if (/^\d{6}$/.test(q)) {
-      const result = await kiwoomPost<{
-        return_code?: number | string;
-        return_msg?: string;
-        stk_nm?: string;
-      }>(
-        "ka10001",
-        "/api/dostk/stkinfo",
-        { stk_cd: q },
-        mode
-      );
-
-      if (!result.stk_nm) {
-        return res.json([]);
-      }
-
-      return res.json([
-        {
-          symbol: q,
-          name: result.stk_nm,
-          exchange: "KRX",
-          type: "EQUITY",
-        },
-      ]);
     }
 
     // 3. 기존 해외주식 검색 유지
