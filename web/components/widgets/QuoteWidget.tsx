@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { apiGet, fmt, fmtBig, pctClass, type Quote } from "../../lib/api";
+import { apiGet, fmt, fmtBig, fmtKstTime, pctClass, type Quote } from "../../lib/api";
 import {
   useTerminal,
   useWidgetSymbol,
@@ -55,6 +55,7 @@ export default function QuoteWidget({ widget }: { widget: WidgetInstance }) {
       const kr = await apiGet<{
         symbol: string;
         name: string | null;
+        checkedAt: string;
         price: number | null;
         change: number | null;
         changePercent: number | null;
@@ -69,6 +70,7 @@ export default function QuoteWidget({ widget }: { widget: WidgetInstance }) {
       return {
         symbol: kr.symbol,
         name: kr.name,
+        checkedAt: kr.checkedAt,
         price: kr.price,
         change: kr.change,
         changePercent: kr.changePercent,
@@ -207,6 +209,14 @@ if (!data) {
         </span>
       </div>
       <div className="dim text-[11px] mb-2 truncate">{data.name}</div>
+      {isKorea && data.checkedAt && (
+        <div
+          className="dim text-[10px] mb-2"
+          title="Kiwoom 응답을 서버가 확인한 시각이며 실제 체결 시각은 아닙니다."
+        >
+          데이터 확인 {fmtKstTime(data.checkedAt)} KST
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-x-4">
         {rows.map(([label, value]) => (
           <div key={label} className="flex justify-between border-b border-[#161616] py-0.5">

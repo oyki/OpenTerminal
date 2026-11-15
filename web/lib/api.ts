@@ -51,11 +51,25 @@ export type Quote = {
   exchange: string | null;
   marketState: string | null;
   source: string;
+  checkedAt?: string;
   sector?: string;
   label?: string;
 };
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
+
+export function fmtKstTime(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
 
 export function fmt(n: number | null | undefined, digits = 2): string {
   if (n === null || n === undefined || !isFinite(n)) return "—";

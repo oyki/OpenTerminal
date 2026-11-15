@@ -118,6 +118,7 @@ koreaRouter.get("/quotes", async (req, res) => {
     res.json({
       symbol,
       name: data.stk_nm ?? null,
+      checkedAt: new Date().toISOString(),
       price: price(data.cur_prc),
       change: numeric(data.pred_pre),
       changePercent: numeric(data.flu_rt),
@@ -247,6 +248,7 @@ koreaRouter.get("/history/:symbol", async (req, res) => {
       currency: "KRW",
       interval: "1d",
       adjusted: true,
+      checkedAt: new Date().toISOString(),
       candles,
       count: candles.length,
       mode,

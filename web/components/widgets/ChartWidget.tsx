@@ -13,7 +13,7 @@ import {
   type IChartApi,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { apiGet, fmt, fmtBig, type Candle } from "../../lib/api";
+import { apiGet, fmt, fmtBig, fmtKstTime, type Candle } from "../../lib/api";
 import {
   sma,
   ema,
@@ -49,6 +49,12 @@ type KoreaHistoryResponse = {
   }>;
   count: number;
   source: string;
+  checkedAt: string;
+};
+
+type ChartHistory = {
+  candles: Candle[];
+  checkedAt: string | null;
 };
 
 // --------------------------------------------------
@@ -205,11 +211,11 @@ export default function ChartWidget({
   // ------------------------------------------------
 
   const {
-  data: candles,
+  data: history,
   error,
   isPending,
   isFetching,
-  } = useQuery({
+  } = useQuery<ChartHistory>({
     queryKey: [
       "history",
       symbol,
@@ -217,11 +223,14 @@ export default function ChartWidget({
       isKorea ? kiwoomMode : "us",
     ],
 
-    queryFn: async (): Promise<Candle[]> => {
+    queryFn: async (): Promise<ChartHistory> => {
       if (!isKorea) {
-        return apiGet<Candle[]>(
-          `/api/history/${encodeURIComponent(symbol)}?range=${range}`
-        );
+        return {
+          candles: await apiGet<Candle[]>(
+            `/api/history/${encodeURIComponent(symbol)}?range=${range}`
+          ),
+          checkedAt: null,
+        };
       }
 
       const result = await apiGet<KoreaHistoryResponse>(
@@ -230,7 +239,10 @@ export default function ChartWidget({
 
       const converted = convertKoreaCandles(result);
 
-      return filterKoreaCandles(converted, range);
+      return {
+        candles: filterKoreaCandles(converted, range),
+        checkedAt: result.checkedAt,
+      };
     },
 
     refetchInterval: isKorea
@@ -241,6 +253,9 @@ export default function ChartWidget({
 
     retry: isKorea ? false : 3,
   });
+
+  const candles = history?.candles;
+  const historyCheckedAt = history?.checkedAt ?? null;
 
   // ------------------------------------------------
   // Crosshair 조회용 데이터
@@ -838,6 +853,7 @@ if (candles.length === 1) {
       {isKorea && (
         <div className="px-2 py-1 text-[10px] text-[var(--text-muted,#808080)]">
           KRX · {kiwoomMode.toUpperCase()} · KRW · Kiwoom daily candles
+          {historyCheckedAt && ` · 확인 ${fmtKstTime(historyCheckedAt)} KST`}
           {" · "}
           1D/5D use daily data
           {" · "}
