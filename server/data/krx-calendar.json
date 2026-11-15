@@ -1,6 +1,117 @@
-
 {
   "sessions": [
+    {
+      "date": "2026-01-01",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "NEW_YEAR_HOLIDAY"
+    },
+    {
+      "date": "2026-01-02",
+      "isTradingDay": true,
+      "openTime": "10:00",
+      "closeTime": "15:30",
+      "reason": "NEW_YEAR_OPENING_SPECIAL_HOURS"
+    },
+    {
+      "date": "2026-02-16",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "LUNAR_NEW_YEAR_HOLIDAY"
+    },
+    {
+      "date": "2026-02-17",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "LUNAR_NEW_YEAR_HOLIDAY"
+    },
+    {
+      "date": "2026-02-18",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "LUNAR_NEW_YEAR_HOLIDAY"
+    },
+    {
+      "date": "2026-03-02",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "INDEPENDENCE_MOVEMENT_DAY_SUBSTITUTE_HOLIDAY"
+    },
+    {
+      "date": "2026-05-01",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "LABOR_DAY"
+    },
+    {
+      "date": "2026-05-05",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "CHILDRENS_DAY"
+    },
+    {
+      "date": "2026-05-25",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "BUDDHAS_BIRTHDAY_SUBSTITUTE_HOLIDAY"
+    },
+    {
+      "date": "2026-06-03",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "LOCAL_ELECTION_DAY"
+    },
+    {
+      "date": "2026-07-17",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "CONSTITUTION_DAY"
+    },
+    {
+      "date": "2026-08-17",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "LIBERATION_DAY_SUBSTITUTE_HOLIDAY"
+    },
+    {
+      "date": "2026-09-24",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "CHUSEOK_HOLIDAY"
+    },
+    {
+      "date": "2026-09-25",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "CHUSEOK_HOLIDAY"
+    },
+    {
+      "date": "2026-10-05",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "NATIONAL_FOUNDATION_DAY_SUBSTITUTE_HOLIDAY"
+    },
+    {
+      "date": "2026-10-09",
+      "isTradingDay": false,
+      "openTime": null,
+      "closeTime": null,
+      "reason": "HANGEUL_DAY"
+    },
     {
       "date": "2026-11-19",
       "isTradingDay": true,
