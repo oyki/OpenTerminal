@@ -124,7 +124,19 @@ npm run dev
 - Web UI → **http://localhost:3000**
 - API health → **http://localhost:4000/api/status**
 
-That's it — no `.env` file required to get a fully working terminal.
+That's it — no `.env` file is required for the built-in public-data sources. Korean market data through Kiwoom requires Kiwoom credentials; see [Korean market data](#korean-market-data-kiwoom) below.
+
+### Korean market data (Kiwoom)
+
+Korean quotes, daily candles, KOSPI/KOSDAQ indexes, and the Korean symbol search use Kiwoom's REST API. The server reads credentials from its process environment:
+
+- `KIWOOM_MODE=demo` or `KIWOOM_MODE=real` selects the server's default mode.
+- Demo mode reads `KIWOOM_APP_KEY_MOCK` and `KIWOOM_SECRET_KEY_MOCK`.
+- Real mode reads `KIWOOM_APP_KEY` and `KIWOOM_SECRET_KEY`.
+
+On Windows, start the server through your local DPAPI-protected credential launcher so it provides the selected credentials to the server process. The launcher and encrypted credential store are local setup items and are not part of this repository. Do not put Kiwoom keys in source files, `.env` files, command history, or Git. Configure valid credentials for each mode you intend to use.
+
+The server spaces Kiwoom API requests to stay within the configured per-process limits: no more than five requests per second overall in either mode, and no more than one request per second for the same TR in demo mode. The KOSPI/KOSDAQ/ETF symbol master is cached in memory for 24 hours; its first load or refresh requires Kiwoom to be reachable. The application provides market-data lookup and charting; do not treat displayed prices as execution-grade.
 
 ### Optional: AI assistant
 
