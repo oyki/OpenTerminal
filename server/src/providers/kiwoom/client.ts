@@ -11,6 +11,31 @@ export type KiwoomContinuation = {
   nextKey: string | null;
 };
 
+const nextRequestAtByMode = new Map<KiwoomMode, number>();
+const nextRequestAtByTr = new Map<string, number>();
+
+async function waitForRequestSlot(
+  mode: KiwoomMode,
+  apiId: string
+): Promise<void> {
+  const trKey = `${mode}:${apiId}`;
+  const now = Date.now();
+  const globalInterval = 200;
+  const trInterval = mode === "demo" ? 1000 : 200;
+  const scheduledAt = Math.max(
+    now,
+    nextRequestAtByMode.get(mode) ?? now,
+    nextRequestAtByTr.get(trKey) ?? now
+  );
+  nextRequestAtByMode.set(mode, scheduledAt + globalInterval);
+  nextRequestAtByTr.set(trKey, scheduledAt + trInterval);
+
+  const delay = scheduledAt - now;
+  if (delay > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+}
+
 export async function kiwoomPostPage<
   T extends Record<string, unknown>
 >(
@@ -21,6 +46,7 @@ export async function kiwoomPostPage<
   continuation?: KiwoomContinuation
 ): Promise<{ data: T; continuation: KiwoomContinuation }> {
   const token = await getKiwoomAccessToken(mode);
+  await waitForRequestSlot(mode, apiId);
   const headers: Record<string, string> = {
     "Content-Type": "application/json;charset=UTF-8",
     authorization: `Bearer ${token}`,
@@ -68,6 +94,7 @@ export async function kiwoomPost<
   mode: KiwoomMode = getKiwoomMode()
 ): Promise<T> {
   const token = await getKiwoomAccessToken(mode);
+  await waitForRequestSlot(mode, apiId);
 
   const response = await fetch(
     `${getKiwoomBaseUrl(mode)}${path}`,
